@@ -31,6 +31,16 @@ the iPad loses Wi-Fi (retried automatically, never duplicated).
 
 Add `?table=12` to a guest link (or generate a per-table QR) to pre-fill the table.
 
+## Install on the branch iPads
+
+Each branch's form installs as its own home-screen app (Branches → **Set up
+iPad** shows a QR + steps): open the link in Safari → Share → **Add to Home
+Screen**. The server gives every `/f/<slug>` page that branch's manifest, app
+name and a generated icon (its logo on its tile; iOS 15 needs
+`apple-touch-icon`). A service worker (`frontend/public/sw.js`, scope `/f/`)
+caches the form so the app still opens without Wi-Fi; submissions made offline
+are queued and sent later. Lock the iPad to the app with Guided Access.
+
 ## Admin
 
 | Page | What it's for |

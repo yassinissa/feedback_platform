@@ -114,3 +114,32 @@ class LogoTests(APITestCase):
         mgr = User.objects.create_user("mgr", password="pass12345")
         self.client.force_authenticate(mgr)
         self.assertIn(self.upload(self.PNG).status_code, (403, 404))
+
+
+class InstallAsAppTests(APITestCase):
+    def setUp(self):
+        self.loc = Location.objects.create(name="The Avenues <b>")
+
+    def test_branch_icon_is_png_of_requested_size(self):
+        from io import BytesIO
+
+        from PIL import Image
+
+        res = self.client.get(f"/api/public/locations/{self.loc.slug}/icon-180.png")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(Image.open(BytesIO(res.content)).size, (180, 180))
+        self.assertEqual(self.client.get(f"/api/public/locations/{self.loc.slug}/icon-999.png").status_code, 404)
+
+    def test_manifest_starts_at_branch_form(self):
+        data = self.client.get(f"/api/public/locations/{self.loc.slug}/manifest.webmanifest").json()
+        self.assertEqual(data["start_url"], f"/f/{self.loc.slug}")
+        self.assertEqual(data["display"], "standalone")
+
+    def test_guest_page_head_tags_are_branch_specific_and_escaped(self):
+        from feedback.app_install import guest_head_tags
+
+        tags = guest_head_tags(self.loc.slug)
+        self.assertIn(f"/api/public/locations/{self.loc.slug}/manifest.webmanifest", tags)
+        self.assertIn("apple-touch-icon", tags)
+        self.assertNotIn("<b>", tags)
+        self.assertIsNone(guest_head_tags("missing-branch"))

@@ -101,6 +101,16 @@ STORAGES = {
 WHITENOISE_ROOT = FRONTEND_DIST if FRONTEND_DIST.exists() else None
 WHITENOISE_MAX_AGE = 31536000 if not DEBUG else 0
 
+
+def _no_cache_for_app_shell(headers, path, url):
+    # Hashed /assets/* can be cached forever; the service worker and manifest must
+    # always be re-checked so iPads pick up new versions.
+    if url in ("/sw.js", "/manifest.webmanifest"):
+        headers["Cache-Control"] = "no-cache"
+
+
+WHITENOISE_ADD_HEADERS_FUNCTION = _no_cache_for_app_shell
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {

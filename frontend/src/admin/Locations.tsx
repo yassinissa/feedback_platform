@@ -19,6 +19,7 @@ export default function Locations() {
   const { data, error, mutate, isLoading } = useLocations()
   const [editing, setEditing] = useState<Location | 'new' | null>(null)
   const [qrFor, setQrFor] = useState<Location | null>(null)
+  const [setupFor, setSetupFor] = useState<Location | null>(null)
 
   async function copy(slug: string) {
     try {
@@ -91,6 +92,9 @@ export default function Locations() {
                 /f/{l.slug}
               </code>
               <div className="loc-actions">
+                <Button size="sm" variant="primary" onClick={() => setSetupFor(l)}>
+                  Set up iPad
+                </Button>
                 <Button size="sm" onClick={() => copy(l.slug)}>
                   Copy link
                 </Button>
@@ -123,6 +127,7 @@ export default function Locations() {
         />
       ) : null}
       {qrFor ? <QrModal location={qrFor} onClose={() => setQrFor(null)} /> : null}
+      {setupFor ? <IpadSetupModal location={setupFor} onClose={() => setSetupFor(null)} /> : null}
     </div>
   )
 }
@@ -326,22 +331,72 @@ function LocationForm({
   )
 }
 
-function QrModal({ location, onClose }: { location: Location; onClose: () => void }) {
-  const [table, setTable] = useState('')
+function useQr(url: string, width = 520) {
   const [src, setSrc] = useState<string | null>(null)
-  const url = guestUrl(location.slug, table.trim())
-
   useEffect(() => {
     let alive = true
     import('qrcode').then((QR) =>
-      QR.toDataURL(url, { width: 640, margin: 1, errorCorrectionLevel: 'M', color: { dark: '#0b0b10', light: '#ffffff' } }).then(
+      QR.toDataURL(url, { width, margin: 1, errorCorrectionLevel: 'M', color: { dark: '#0b0b10', light: '#ffffff' } }).then(
         (data) => alive && setSrc(data),
       ),
     )
     return () => {
       alive = false
     }
-  }, [url])
+  }, [url, width])
+  return src
+}
+
+const IPAD_STEPS: { title: string; body: string }[] = [
+  {
+    title: 'Open the form in Safari',
+    body: 'Scan this QR with the iPad camera, or type the link into Safari. It must be Safari, not Chrome.',
+  },
+  {
+    title: 'Add it to the Home Screen',
+    body: 'Tap the Share button (square with an arrow), then “Add to Home Screen”, then “Add”. The branch logo becomes the app icon.',
+  },
+  {
+    title: 'Open it from the new icon',
+    body: 'It opens full-screen with no Safari bars, straight to this branch’s form. It keeps working if the Wi-Fi drops.',
+  },
+  {
+    title: 'Lock the iPad to the app (recommended)',
+    body: 'Settings → Accessibility → Guided Access → turn on and set a passcode. Open the app, triple-click the top (or Home) button, tap Start. Guests can’t leave the form; staff triple-click and enter the passcode to exit.',
+  },
+]
+
+function IpadSetupModal({ location, onClose }: { location: Location; onClose: () => void }) {
+  const url = guestUrl(location.slug)
+  const src = useQr(url, 440)
+  return (
+    <Modal title={`Set up the ${location.name} iPad`} onClose={onClose} width={640}>
+      <div className="setup">
+        <div className="setup-qr">
+          {src ? <img src={src} alt={`QR code linking to ${url}`} width={200} height={200} /> : <div className="skeleton" style={{ width: 200, height: 200 }} />}
+          <code className="loc-link">{url}</code>
+        </div>
+        <ol className="setup-steps">
+          {IPAD_STEPS.map((step) => (
+            <li key={step.title}>
+              <b>{step.title}</b>
+              <span className="muted">{step.body}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+      <p className="muted small setup-note">
+        Tip: keep the iPad on its charger and set Settings → Display &amp; Brightness → Auto-Lock to “Never” so the form is always
+        ready.
+      </p>
+    </Modal>
+  )
+}
+
+function QrModal({ location, onClose }: { location: Location; onClose: () => void }) {
+  const [table, setTable] = useState('')
+  const url = guestUrl(location.slug, table.trim())
+  const src = useQr(url, 640)
 
   const filename = `qr-${location.slug}${table ? `-table-${table}` : ''}.png`
 

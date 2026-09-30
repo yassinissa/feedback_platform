@@ -1327,3 +1327,75 @@ select.input-sm {
     backdrop-filter: none;
   }
 }
+
+/* ── iPad setup guide ─────────────────────────────────────────── */
+.setup {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+.setup-qr {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border-radius: var(--r-lg);
+  background: #fff;
+}
+.setup-qr img {
+  display: block;
+  width: 200px;
+  height: 200px;
+}
+.setup-qr .loc-link {
+  background: #f1f2f6;
+  border-color: #e3e5ee;
+  color: #3a3f55;
+  white-space: normal;
+  word-break: break-all;
+}
+.setup-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.setup-steps li {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-inline-start: 40px;
+  font-size: 14px;
+  counter-increment: step;
+}
+.setup-steps li::before {
+  content: counter(step);
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: var(--accent-a20);
+  color: var(--accent-hi);
+  font-weight: 700;
+  font-size: 13px;
+}
+.setup-note {
+  margin: 0;
+}
+@media (max-width: 620px) {
+  .setup {
+    grid-template-columns: 1fr;
+  }
+  .setup-qr {
+    align-items: center;
+  }
+}

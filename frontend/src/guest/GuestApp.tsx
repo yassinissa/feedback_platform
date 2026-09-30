@@ -59,6 +59,22 @@ export default function GuestApp() {
     }
   }, [])
 
+  // Installed-app support: cache the kiosk so it opens even without Wi-Fi.
+  useEffect(() => {
+    if (import.meta.env.DEV || !('serviceWorker' in navigator)) return
+    navigator.serviceWorker
+      .register('/sw.js', { scope: '/f/' })
+      .then(() => navigator.serviceWorker.ready)
+      .then((reg) => {
+        const loaded = performance
+          .getEntriesByType('resource')
+          .map((e) => e.name)
+          .filter((u) => /\/assets\/|\/api\/public\/.+\/(logo|icon-)|fonts\.(googleapis|gstatic)\.com/.test(u))
+        reg.active?.postMessage({ type: 'precache', urls: [window.location.href, `/api/public/locations/${slug}/`, ...loaded] })
+      })
+      .catch(() => undefined)
+  }, [slug])
+
   const dir = lang === 'ar' ? 'rtl' : 'ltr'
   useEffect(() => {
     document.documentElement.lang = lang
