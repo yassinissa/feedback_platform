@@ -1,25 +1,31 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
-from .models import ALL_HIGHLIGHTS, Feedback, Location, Profile
+from .models import ALL_HIGHLIGHTS, GUEST_CATEGORIES, Feedback, Location, Profile
 
 User = get_user_model()
 
 
 class LocationSerializer(serializers.ModelSerializer):
+    logo_url = serializers.ReadOnlyField()
     feedback_count = serializers.IntegerField(read_only=True, default=0)
     last_feedback_at = serializers.DateTimeField(read_only=True, default=None)
 
     class Meta:
         model = Location
-        fields = ["id", "name", "name_ar", "city", "slug", "is_active", "created_at", "feedback_count", "last_feedback_at"]
+        fields = [
+            "id", "name", "name_ar", "city", "slug", "is_active", "created_at", "logo_url", "logo_bg",
+            "feedback_count", "last_feedback_at",
+        ]
         read_only_fields = ["slug", "created_at"]
 
 
 class PublicLocationSerializer(serializers.ModelSerializer):
+    logo_url = serializers.ReadOnlyField()
+
     class Meta:
         model = Location
-        fields = ["name", "name_ar", "city", "slug"]
+        fields = ["name", "name_ar", "city", "slug", "logo_url", "logo_bg"]
 
 
 class FeedbackSubmitSerializer(serializers.ModelSerializer):
@@ -33,7 +39,7 @@ class FeedbackSubmitSerializer(serializers.ModelSerializer):
             "highlights", "comment", "guest_name", "guest_contact", "contact_consent",
             "table_number", "server_name", "language", "website",
         ]
-        extra_kwargs = {"client_id": {"validators": []}}
+        extra_kwargs = {"client_id": {"validators": []}, "overall": {"required": False}}
 
     def validate_highlights(self, value):
         if not isinstance(value, list) or len(value) > 14:
@@ -47,6 +53,12 @@ class FeedbackSubmitSerializer(serializers.ModelSerializer):
         return value if value in {"en", "ar"} else "en"
 
     def validate(self, attrs):
+        # The guest form rates food, service and ambiance; overall is their rounded mean.
+        if attrs.get("overall") is None:
+            scores = [attrs[c] for c in GUEST_CATEGORIES if attrs.get(c) is not None]
+            if not scores:
+                raise serializers.ValidationError({"overall": "Rate at least one part of your visit."})
+            attrs["overall"] = int(sum(scores) / len(scores) + 0.5)
         if attrs.get("contact_consent") and not attrs.get("guest_contact", "").strip():
             raise serializers.ValidationError({"guest_contact": "Add a phone or email so we can reach you."})
         return attrs

@@ -172,11 +172,11 @@ a {
   cursor: not-allowed;
 }
 .btn-primary {
-  background: var(--accent);
+  background: var(--accent-lo); /* #4f46e5: white text passes 4.5:1 */
   color: #fff;
 }
 .btn-primary:hover:not(:disabled) {
-  background: var(--accent-lo);
+  background: #4338ca;
   box-shadow: var(--accent-glow);
 }
 .btn-secondary {

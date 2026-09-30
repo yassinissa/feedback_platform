@@ -17,5 +17,6 @@ urlpatterns = [
     path("history/", views.HistoryView.as_view()),
     path("public/locations/<slug:slug>/", views.PublicLocationView.as_view()),
     path("public/locations/<slug:slug>/feedback/", views.PublicSubmitView.as_view()),
+    path("public/locations/<slug:slug>/logo/", views.PublicLogoView.as_view()),
     path("", include(router.urls)),
 ]

@@ -36,7 +36,10 @@ Single source of truth for arch-guardian reviews.
    unguarded `dvh`; add translucent colours as `rgba()` tokens in `base.css`.
 5. **Public endpoints stay idempotent and throttled** (`client_id`, honeypot,
    `feedback_submit` rate).
-6. Components use explicit variants (`variant="primary"`) and context providers
+6. **Branch logos live in the database** (BinaryField, sniffed PNG/JPEG/WebP, no SVG),
+   served from /api/public/locations/<slug>/logo/?v=<ts>. Render's disk is ephemeral.
+7. Guest form asks food/service/ambiance only; overall is derived server-side.
+8. Components use explicit variants (`variant="primary"`) and context providers
    for shared state, not boolean-prop flags (composition-patterns skill).
 
 ## Stack

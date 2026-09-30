@@ -12,7 +12,7 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from feedback.models import NEGATIVE_HIGHLIGHTS, POSITIVE_HIGHLIGHTS, Feedback, Location, Profile
+from feedback.models import NEGATIVE_HIGHLIGHTS, Feedback, Location, Profile
 
 COMMENTS = {
     5: [
@@ -88,15 +88,14 @@ class Command(BaseCommand):
                 for _ in range(random.randint(3, 11)):
                     overall = max(1, min(5, round(random.gauss(mean, 0.9))))
                     lang, comment = random.choice(COMMENTS[overall])
-                    pool = POSITIVE_HIGHLIGHTS if overall >= 4 else NEGATIVE_HIGHLIGHTS
-                    cat = lambda: max(1, min(5, overall + random.choice([-1, 0, 0, 1]))) if random.random() > 0.25 else None
+                    pool = NEGATIVE_HIGHLIGHTS
+                    cat = lambda: max(1, min(5, overall + random.choice([-1, 0, 0, 1])))
                     name = random.choice(NAMES)
                     ts = now - timedelta(days=day, hours=random.randint(0, 11), minutes=random.randint(0, 59))
                     batch.append(Feedback(
                         location=loc, overall=overall, food=cat(), service=cat(), ambiance=cat(),
-                        cleanliness=cat(), value=cat(),
-                        nps=max(0, min(10, overall * 2 + random.choice([-2, -1, 0, 0, 1]))) if random.random() > 0.2 else None,
-                        highlights=random.sample(pool, k=random.randint(0, 3)), comment=comment, language=lang,
+                        highlights=random.sample(pool, k=random.randint(0, 3)) if overall <= 3 else [],
+                        comment=comment, language=lang,
                         guest_name=name, guest_contact=f"+965 5{random.randint(1000000, 9999999)}" if name and overall <= 2 else "",
                         contact_consent=bool(name and overall <= 2), table_number=str(random.randint(1, 30)) if random.random() > 0.4 else "",
                         server_name=random.choice(SERVERS),

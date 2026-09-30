@@ -1,56 +1,46 @@
 import { createContext, use, useMemo, useReducer, type ReactNode } from 'react'
 import type { Lang } from '../lib/copy'
-import type { CategoryKey } from '../lib/types'
 import { STRINGS, type Strings } from './i18n'
 
+export type GuestCategory = 'food' | 'service' | 'ambiance'
+export const GUEST_CATEGORIES: GuestCategory[] = ['food', 'service', 'ambiance']
+
 export interface FormState {
-  overall: number | null
-  categories: Partial<Record<CategoryKey, number>>
+  ratings: Partial<Record<GuestCategory, number>>
   highlights: string[]
   comment: string
-  nps: number | null
   guest_name: string
-  table_number: string
   server_name: string
   guest_contact: string
   contact_consent: boolean
+  table_number: string // only from a per-table QR (?table=12)
   website: string // honeypot
 }
 
-type TextField = 'comment' | 'guest_name' | 'table_number' | 'server_name' | 'guest_contact' | 'website'
+type TextField = 'comment' | 'guest_name' | 'server_name' | 'guest_contact' | 'website'
 
 type Action =
-  | { type: 'overall'; value: number }
-  | { type: 'category'; key: CategoryKey; value: number }
+  | { type: 'rate'; key: GuestCategory; value: number }
   | { type: 'toggleHighlight'; key: string }
-  | { type: 'nps'; value: number }
   | { type: 'text'; field: TextField; value: string }
   | { type: 'consent'; value: boolean }
-  | { type: 'reset'; table: string }
 
-export const initialForm = (table = ''): FormState => ({
-  overall: null,
-  categories: {},
+const initialForm = (table: string): FormState => ({
+  ratings: {},
   highlights: [],
   comment: '',
-  nps: null,
   guest_name: '',
-  table_number: table,
   server_name: '',
   guest_contact: '',
   contact_consent: false,
+  table_number: table,
   website: '',
 })
 
 function reducer(state: FormState, action: Action): FormState {
   switch (action.type) {
-    case 'overall': {
-      // Switching between happy/unhappy changes which highlights are offered — clear stale picks.
-      const flipped = state.overall != null && state.overall >= 4 !== action.value >= 4
-      return { ...state, overall: action.value, highlights: flipped ? [] : state.highlights }
-    }
-    case 'category':
-      return { ...state, categories: { ...state.categories, [action.key]: action.value } }
+    case 'rate':
+      return { ...state, ratings: { ...state.ratings, [action.key]: action.value } }
     case 'toggleHighlight':
       return {
         ...state,
@@ -58,16 +48,20 @@ function reducer(state: FormState, action: Action): FormState {
           ? state.highlights.filter((h) => h !== action.key)
           : [...state.highlights, action.key],
       }
-    case 'nps':
-      return { ...state, nps: state.nps === action.value ? null : action.value }
     case 'text':
       return { ...state, [action.field]: action.value }
     case 'consent':
       return { ...state, contact_consent: action.value }
-    case 'reset':
-      return initialForm(action.table)
   }
 }
+
+/** Average of what's been rated so far (drives the ambient light), or null. */
+export function averageRating(ratings: FormState['ratings']): number | null {
+  const values = GUEST_CATEGORIES.map((k) => ratings[k]).filter((v): v is number => v != null)
+  return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null
+}
+
+export const hasPoor = (ratings: FormState['ratings']) => GUEST_CATEGORIES.some((k) => ratings[k] === 1)
 
 interface FormContextValue {
   state: FormState
@@ -95,14 +89,12 @@ export function useForm(): FormContextValue {
 export function toPayload(s: FormState, lang: Lang, clientId: string) {
   return {
     client_id: clientId,
-    overall: s.overall,
-    ...s.categories,
-    nps: s.nps,
+    ...s.ratings, // overall is derived server-side from these
     highlights: s.highlights,
     comment: s.comment.trim(),
     guest_name: s.guest_name.trim(),
-    table_number: s.table_number.trim(),
     server_name: s.server_name.trim(),
+    table_number: s.table_number.trim(),
     guest_contact: s.contact_consent ? s.guest_contact.trim() : '',
     contact_consent: s.contact_consent,
     language: lang,

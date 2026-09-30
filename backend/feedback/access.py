@@ -72,6 +72,8 @@ def scoped_feedback(request, *, with_dates=True, default_days=30):
         qs = qs.filter(overall=int(rating))
     if p.get("status") in {"new", "reviewed", "resolved"}:
         qs = qs.filter(status=p["status"])
+    if p.get("followup"):
+        qs = qs.filter(contact_consent=True)
     if p.get("has_comment"):
         qs = qs.exclude(comment="")
     if p.get("q"):

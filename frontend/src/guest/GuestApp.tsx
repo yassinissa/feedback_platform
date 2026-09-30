@@ -3,21 +3,24 @@ import { useParams } from 'react-router-dom'
 import { ApiError } from '../lib/api'
 import type { Lang } from '../lib/copy'
 import '../styles/guest.css'
-import { FormProvider, toPayload, useForm } from './FormContext'
+import { FormProvider, GUEST_CATEGORIES, averageRating, hasPoor, toPayload, useForm, type GuestCategory } from './FormContext'
 import { STRINGS, defaultLang } from './i18n'
 import { flushQueue, submitFeedback, uuid } from './queue'
-import { AboutStep, DetailsStep, RatingFaces, WordsStep } from './Steps'
+import { AboutStep, RateStep } from './Steps'
 
 interface PublicLocation {
   name: string
   name_ar: string
   city: string
   slug: string
+  logo_url: string | null
+  logo_bg: 'light' | 'dark'
 }
 
 const IDLE_MS = 60_000
 const IDLE_COUNTDOWN = 15
 const THANKS_SECONDS = 10
+const STEPS = 2 // 0: rate + words, 1: about you, 2: thanks
 
 type LoadState = { kind: 'loading' } | { kind: 'ready'; location: PublicLocation } | { kind: 'missing' } | { kind: 'error' }
 
@@ -96,11 +99,7 @@ export default function GuestApp() {
 
   return (
     <FormProvider key={session} lang={lang} table={table}>
-      <Flow
-        location={load.location}
-        onToggleLang={() => setLang((l) => (l === 'en' ? 'ar' : 'en'))}
-        onDone={newGuest}
-      />
+      <Flow location={load.location} onToggleLang={() => setLang((l) => (l === 'en' ? 'ar' : 'en'))} onDone={newGuest} />
     </FormProvider>
   )
 }
@@ -116,59 +115,57 @@ function Ambient({ mood }: { mood: number }) {
   )
 }
 
-const TOTAL_STEPS = 4
+function BranchMark({ location, name, size = 'md' }: { location: PublicLocation; name: string; size?: 'md' | 'lg' }) {
+  return (
+    <span className={`mark mark-${size}`} data-bg={location.logo_url ? location.logo_bg : 'none'} aria-hidden>
+      {location.logo_url ? <img src={location.logo_url} alt="" width={96} height={96} /> : name.slice(0, 1)}
+    </span>
+  )
+}
 
-function Flow({
-  location,
-  onToggleLang,
-  onDone,
-}: {
-  location: PublicLocation
-  onToggleLang: () => void
-  onDone: () => void
-}) {
-  const { state, dispatch, meta } = useForm()
+function Flow({ location, onToggleLang, onDone }: { location: PublicLocation; onToggleLang: () => void; onDone: () => void }) {
+  const { state, meta } = useForm()
   const { t, lang, dir } = meta
-  const [step, setStep] = useState(0) // 0..3 form, 4 thanks
+  const [step, setStep] = useState(0)
   const [direction, setDirection] = useState<'fwd' | 'back'>('fwd')
+  const [missing, setMissing] = useState<GuestCategory[]>([])
   const [sending, setSending] = useState(false)
   const [contactError, setContactError] = useState<string>()
   const [formError, setFormError] = useState<string>()
   const clientId = useRef(uuid())
   const stageRef = useRef<HTMLDivElement>(null)
-
   const name = lang === 'ar' && location.name_ar ? location.name_ar : location.name
 
-  const go = useCallback((to: number) => {
-    setDirection(to >= step ? 'fwd' : 'back')
-    setStep(to)
-  }, [step])
+  // Clear a "please rate" message as soon as that card gets a rating.
+  useEffect(() => {
+    setMissing((cur) => (cur.length ? cur.filter((c) => state.ratings[c] == null) : cur))
+  }, [state.ratings])
 
-  function next() {
-    setDirection('fwd')
-    setStep((s) => Math.min(s + 1, TOTAL_STEPS))
-  }
-  function back() {
-    setDirection('back')
-    setStep((s) => Math.max(0, s - 1))
-  }
-
-  // Move focus to the new step heading so screen readers announce it.
   useEffect(() => {
     if (step === 0) return
     stageRef.current?.querySelector<HTMLElement>('h1')?.focus()
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [step])
 
-  function pickOverall(n: number) {
-    dispatch({ type: 'overall', value: n })
-    window.setTimeout(() => go(1), 420)
+  function next() {
+    const unrated = GUEST_CATEGORIES.filter((c) => state.ratings[c] == null)
+    if (unrated.length) {
+      setMissing(unrated)
+      document.getElementById(`rate-${unrated[0]}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      return
+    }
+    setDirection('fwd')
+    setStep(1)
+  }
+
+  function back() {
+    setDirection('back')
+    setStep(0)
   }
 
   async function submit() {
-    if (!state.overall) return go(0)
     if (state.contact_consent && !state.guest_contact.trim()) {
-      setContactError(lang === 'ar' ? 'أضف رقم هاتف أو بريد إلكتروني لنتمكن من التواصل معك.' : 'Add a phone or email so we can reach you.')
+      setContactError(t.contactMissing)
       return
     }
     setContactError(undefined)
@@ -176,7 +173,8 @@ function Flow({
     setSending(true)
     try {
       await submitFeedback(location.slug, toPayload(state, lang, clientId.current))
-      next()
+      setDirection('fwd')
+      setStep(2)
     } catch (e) {
       const data = e instanceof ApiError ? (e.data as Record<string, string[]> | null) : null
       if (data?.guest_contact) setContactError(data.guest_contact[0])
@@ -186,68 +184,75 @@ function Flow({
     }
   }
 
-  const mood = state.overall ?? 0
+  const avg = averageRating(state.ratings)
+  const mood = avg == null ? 0 : Math.round(avg)
+  const inForm = step < STEPS
 
   return (
     <div className="guest min-h-screen" dir={dir}>
       <Ambient mood={mood} />
       <header className="guest-top">
         <div className="venue">
-          <span className="venue-mark" aria-hidden>
-            {name.slice(0, 1)}
+          <BranchMark location={location} name={name} />
+          <span className="venue-text">
+            <span className="venue-name" translate="no">
+              {name}
+            </span>
+            {location.city ? <span className="venue-city">{location.city}</span> : null}
           </span>
-          <span className="venue-name" translate="no">{name}</span>
         </div>
-        {step < TOTAL_STEPS ? (
-          <button className="lang-btn" onClick={onToggleLang} aria-label={t.langSwitchLabel} lang={lang === 'en' ? 'ar' : 'en'}>
-            {t.langSwitch}
-          </button>
-        ) : null}
+        <div className="top-actions">
+          {inForm ? (
+            <span className="step-pill tabular" aria-label={t.stepOf(step + 1, STEPS)}>
+              <span className="step-dots" aria-hidden>
+                <i data-on />
+                <i data-on={step >= 1 || undefined} />
+              </span>
+              <bdi dir="ltr">
+                {step + 1} / {STEPS}
+              </bdi>
+            </span>
+          ) : null}
+          {inForm ? (
+            <button className="lang-btn" onClick={onToggleLang} aria-label={t.langSwitchLabel} lang={lang === 'en' ? 'ar' : 'en'}>
+              {t.langSwitch}
+            </button>
+          ) : null}
+        </div>
       </header>
 
-      {step > 0 && step < TOTAL_STEPS ? (
-        <nav className="progress" aria-label={t.stepOf(step + 1, TOTAL_STEPS)}>
-          <ol>
-            {t.steps.map((label, i) => (
-              <li key={label} data-state={i < step ? 'done' : i === step ? 'current' : 'todo'}>
-                <span className="progress-bar" />
-                <span className="progress-label">{label}</span>
-              </li>
-            ))}
-          </ol>
-        </nav>
-      ) : null}
-
       <main className="stage" ref={stageRef}>
-        <div key={step} className={`step step-${direction}${step === 0 || step === TOTAL_STEPS ? ' step-center' : ''}`}>
+        <div key={step} className={`step step-${direction}${step === 2 ? ' step-center' : ''}`}>
           {step === 0 ? (
-            <section className="welcome">
-              <p className="eyebrow">{t.welcome(name)}</p>
-              <h1 className="hero-title">{t.welcomeTitle}</h1>
-              <p className="step-sub">{t.welcomeSub}</p>
-              <RatingFaces onPick={pickOverall} />
-            </section>
+            <>
+              <header className="step-head intro">
+                <p className="eyebrow">{t.welcome(name)}</p>
+                <h1 className="step-title title-xl">{t.rateTitle}</h1>
+                <p className="step-sub">{t.rateSub}</p>
+              </header>
+              <RateStep missing={missing} />
+            </>
           ) : null}
-          {step === 1 ? <DetailsStep /> : null}
-          {step === 2 ? <WordsStep /> : null}
-          {step === 3 ? <AboutStep contactError={contactError} /> : null}
-          {step === 4 ? <Thanks onDone={onDone} /> : null}
+          {step === 1 ? <AboutStep contactError={contactError} /> : null}
+          {step === 2 ? <Thanks location={location} name={name} onDone={onDone} /> : null}
         </div>
       </main>
 
-      {step > 0 && step < TOTAL_STEPS ? (
+      {inForm ? (
         <footer className="guest-actions">
           {formError ? (
             <p className="field-error form-error" role="alert">
               {formError}
             </p>
           ) : null}
-          <div className="guest-actions-row">
-            <button className="btn btn-ghost btn-xl" onClick={back}>
-              <Arrow flip={dir === 'ltr'} />
-              {t.back}
-            </button>
-            {step < TOTAL_STEPS - 1 ? (
+          <div className={`guest-actions-row${step === 0 ? ' only-next' : ''}`}>
+            {step === 1 ? (
+              <button className="btn btn-ghost btn-xl" onClick={back}>
+                <Arrow flip={dir === 'ltr'} />
+                {t.back}
+              </button>
+            ) : null}
+            {step === 0 ? (
               <button className="btn btn-primary btn-xl" onClick={next}>
                 {t.next}
                 <Arrow flip={dir === 'rtl'} />
@@ -262,7 +267,7 @@ function Flow({
         </footer>
       ) : null}
 
-      {step > 0 && step < TOTAL_STEPS ? <IdleGuard onReset={onDone} /> : null}
+      {inForm ? <IdleGuard onReset={onDone} /> : null}
     </div>
   )
 }
@@ -275,11 +280,11 @@ function Arrow({ flip }: { flip: boolean }) {
   )
 }
 
-function Thanks({ onDone }: { onDone: () => void }) {
+function Thanks({ location, name, onDone }: { location: PublicLocation; name: string; onDone: () => void }) {
   const { state, meta } = useForm()
   const { t } = meta
   const [left, setLeft] = useState(THANKS_SECONDS)
-  const overall = state.overall ?? 5
+  const avg = averageRating(state.ratings) ?? 5
 
   useEffect(() => {
     const timer = window.setInterval(() => setLeft((s) => s - 1), 1000)
@@ -290,13 +295,16 @@ function Thanks({ onDone }: { onDone: () => void }) {
   }, [left, onDone])
 
   const firstName = state.guest_name.trim().split(/\s+/)[0] ?? ''
-  const body = overall >= 4 ? t.thanksHigh : overall === 3 ? t.thanksMid : t.thanksLow
+  const body = hasPoor(state.ratings) ? t.thanksSorry : avg >= 4 ? t.thanksHigh : t.thanksMid
   return (
     <section className="thanks" aria-live="polite">
-      <svg className="check" viewBox="0 0 96 96" aria-hidden>
-        <circle cx="48" cy="48" r="44" className="check-ring" />
-        <path d="M30 49l12 12 24-26" className="check-tick" />
-      </svg>
+      <div className="thanks-mark">
+        <BranchMark location={location} name={name} size="lg" />
+        <svg className="check" viewBox="0 0 96 96" aria-hidden>
+          <circle cx="48" cy="48" r="44" className="check-ring" />
+          <path d="M30 49l12 12 24-26" className="check-tick" />
+        </svg>
+      </div>
       <h1 className="hero-title" tabIndex={-1}>
         {t.thanks(firstName)}
       </h1>
@@ -328,7 +336,7 @@ function IdleGuard({ onReset }: { onReset: () => void }) {
       arm()
     }
     arm()
-    const events = ['pointerdown', 'keydown', 'input', 'scroll'] as const
+    const events = ['pointerdown', 'touchstart', 'click', 'keydown', 'input', 'scroll'] as const
     events.forEach((ev) => window.addEventListener(ev, onActivity, { passive: true }))
     return () => {
       window.clearTimeout(idleTimer.current)

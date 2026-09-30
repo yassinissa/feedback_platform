@@ -13,6 +13,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework.exceptions import ValidationError
 from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
@@ -30,6 +31,23 @@ from .serializers import (
 )
 
 User = get_user_model()
+
+MAX_LOGO_BYTES = 1_000_000
+# Sniff real bytes rather than trusting the upload's declared type. SVG is refused:
+# it can carry script and would be served from our own origin.
+LOGO_SIGNATURES = [
+    (bytes.fromhex("89504e470d0a1a0a"), "image/png"),
+    (bytes.fromhex("ffd8ff"), "image/jpeg"),
+]
+
+
+def sniff_image(data: bytes):
+    for sig, mime in LOGO_SIGNATURES:
+        if data.startswith(sig):
+            return mime
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
 
 
 def nps_score(values):
@@ -93,6 +111,20 @@ class PublicLocationView(APIView):
         return Response(PublicLocationSerializer(location).data)
 
 
+class PublicLogoView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request, slug):
+        location = get_object_or_404(Location, slug=slug)
+        if not location.logo:
+            return HttpResponse(status=404)
+        response = HttpResponse(bytes(location.logo), content_type=location.logo_type or "image/png")
+        # URL carries ?v=<timestamp>, so a new upload busts the cache.
+        response["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+
 class PublicSubmitView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
@@ -128,6 +160,26 @@ class LocationViewSet(viewsets.ModelViewSet):
         return visible_locations(self.request.user).annotate(
             feedback_count=Count("feedback"), last_feedback_at=Max("feedback__created_at")
         )
+
+    @action(detail=True, methods=["post", "delete"], permission_classes=[IsAdmin], parser_classes=[MultiPartParser])
+    def logo(self, request, pk=None):
+        location = self.get_object()
+        if request.method == "DELETE":
+            location.logo, location.logo_type, location.logo_updated = None, "", None
+            location.save(update_fields=["logo", "logo_type", "logo_updated"])
+            return Response(LocationSerializer(location).data)
+        upload = request.FILES.get("file")
+        if not upload:
+            raise ValidationError({"file": "Choose an image to upload."})
+        if upload.size > MAX_LOGO_BYTES:
+            raise ValidationError({"file": "Logo must be under 1 MB."})
+        data = upload.read()
+        mime = sniff_image(data)
+        if not mime:
+            raise ValidationError({"file": "Use a PNG, JPG or WebP image."})
+        location.logo, location.logo_type, location.logo_updated = data, mime, timezone.now()
+        location.save(update_fields=["logo", "logo_type", "logo_updated"])
+        return Response(LocationSerializer(location).data)
 
     @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
     def regenerate_link(self, request, pk=None):
@@ -190,6 +242,7 @@ class StatsView(APIView):
             count=Count("id"), avg=Avg("overall"),
             **{c: Avg(c) for c in CATEGORY_FIELDS},
             attention=Count("id", filter=Q(overall__lte=2, status="new")),
+            followups=Count("id", filter=Q(contact_consent=True) & ~Q(status="resolved")),
         )
         rows = list(qs.values("overall", "nps", "highlights", "location_id"))
 
@@ -237,6 +290,7 @@ class StatsView(APIView):
             "nps": nps_score(r["nps"] for r in rows),
             "nps_responses": sum(1 for r in rows if r["nps"] is not None),
             "attention": agg["attention"],
+            "followups": agg["followups"],
             "distribution": {str(k): sum(1 for r in rows if r["overall"] == k) for k in range(1, 6)},
             "categories": {c: rounded(agg[c]) for c in CATEGORY_FIELDS},
             "series": series,

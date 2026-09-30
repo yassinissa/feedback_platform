@@ -2,7 +2,7 @@ import { useCallback, useDeferredValue, useEffect, useState } from 'react'
 import useSWR, { useSWRConfig } from 'swr'
 import { api, downloadFile } from '../lib/api'
 import { moodVar } from '../lib/copy'
-import { dayLabel, fmtAvg, fmtNps, longDay } from '../lib/format'
+import { dayLabel, fmtAvg, longDay } from '../lib/format'
 import type { Feedback, HistoryDay, Paginated } from '../lib/types'
 import { Button } from '../ui/Button'
 import { EmptyState, ErrorState } from '../ui/States'
@@ -23,6 +23,7 @@ export default function History() {
   const toast = useToast()
   const rating = params.get('rating') ?? ''
   const status = params.get('status') ?? ''
+  const followup = params.get('followup') === '1'
   const [search, setSearch] = useState(params.get('q') ?? '')
   const deferredSearch = useDeferredValue(search)
   const [exporting, setExporting] = useState(false)
@@ -39,6 +40,7 @@ export default function History() {
   const q = new URLSearchParams(filters.query)
   if (rating) q.set('rating', rating)
   if (status) q.set('status', status)
+  if (followup) q.set('followup', '1')
   if (params.get('q')) q.set('q', params.get('q')!)
   const qs = q.toString()
 
@@ -105,6 +107,9 @@ export default function History() {
             <option value="resolved">Resolved</option>
           </select>
         </label>
+        <button className="chip" aria-pressed={followup} onClick={() => set({ followup: followup ? null : '1' })}>
+          Asked for a follow-up
+        </button>
         <label className="search">
           <span className="sr-only">Search comments, names, servers or table</span>
           <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
@@ -182,8 +187,8 @@ function DayGroup({ day, open, onToggle, baseQuery, showBranch, onSummaryChange 
             <span>average</span>
           </span>
           <span className="day-stat hide-sm">
-            <b className="tabular">{fmtNps(day.nps)}</b>
-            <span>NPS</span>
+            <b className="tabular">{day.comments}</b>
+            <span>{day.comments === 1 ? 'comment' : 'comments'}</span>
           </span>
           <span className="day-badges">
             {day.low ? <span className="badge badge-danger tabular">{day.low} low</span> : null}

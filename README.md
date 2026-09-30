@@ -9,13 +9,21 @@ by branch, in a dashboard built for iPad, desktop and phone.
 
 ## What guests fill in
 
-1. **Overall rating** — five faces; the screen's light shifts to match the mood.
-2. **Details** — optional 1–5 scores for food, service, ambiance, cleanliness and
-   value, plus quick tags ("Delicious food", or "Slow service" when unhappy).
-3. **Their words** — "Describe your experience" comment + "Would you recommend
-   us?" 0–10 (Net Promoter Score).
-4. **About them** — name, table number, who served them, and an opt-in
-   "I'd like a manager to contact me" with phone/email.
+Two pages, under a minute:
+
+1. **Rate the visit** — Food, Service and Ambiance, each with five faces
+   (Poor → Excellent); the screen's light shifts with their answers. On the
+   same page: optional "What could be better?" tags and "In your own words".
+2. **About you** — name and server's name (both optional), and "I'd like a
+   manager to contact me" with phone or email. Only when a guest picked
+   **Poor** does this page (and the thank-you) apologise and invite contact.
+
+The overall rating stored for each entry is the rounded average of the three.
+
+Each branch can have its **own logo** (Branches → Edit → Upload logo), shown on
+its guest form and thank-you screen. Logos are resized in the browser and stored
+in the database, so they survive Render redeploys. Pick the dark tile for white
+logos.
 
 Kiosk behaviour: the form clears itself 10 s after the thank-you screen, warns
 and resets an abandoned form after 60 s, and **queues submissions offline** if

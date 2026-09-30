@@ -16,6 +16,8 @@ export interface Location {
   slug: string
   is_active: boolean
   created_at: string
+  logo_url: string | null
+  logo_bg: 'light' | 'dark'
   feedback_count: number
   last_feedback_at: string | null
 }
@@ -63,6 +65,7 @@ export interface Stats {
   nps: number | null
   nps_responses: number
   attention: number
+  followups: number
   distribution: Record<'1' | '2' | '3' | '4' | '5', number>
   categories: Record<CategoryKey, number | null>
   series: { date: string; count: number; avg: number | null }[]

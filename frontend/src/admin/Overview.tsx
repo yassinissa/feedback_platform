@@ -1,8 +1,8 @@
 import { Link } from 'react-router-dom'
 import useSWR from 'swr'
-import { CATEGORY_LABELS, HIGHLIGHT_LABELS, isNegativeHighlight, moodVar } from '../lib/copy'
-import { fmtAvg, fmtNps, relativeTime, timeOf } from '../lib/format'
-import { CATEGORY_KEYS, type Feedback, type Paginated, type Stats } from '../lib/types'
+import { CATEGORY_LABELS, GUEST_CATEGORY_KEYS, HIGHLIGHT_LABELS, isNegativeHighlight, moodVar } from '../lib/copy'
+import { fmtAvg, relativeTime, timeOf } from '../lib/format'
+import { type Feedback, type Paginated, type Stats } from '../lib/types'
 import { EmptyState, ErrorState, Stars } from '../ui/States'
 import { useAuth } from './auth'
 import { CategoryBars, Distribution, TrendChart } from './charts'
@@ -82,13 +82,14 @@ export default function Overview() {
             <Kpi label="Average rating" value={`${fmtAvg(data.avg)}★`} tone={moodVar(data.avg)}>
               <Delta now={data.avg} before={data.previous.avg} digits={2} />
             </Kpi>
-            <Kpi label="Net Promoter Score" value={fmtNps(data.nps)}>
-              {data.nps_responses ? (
-                <Delta now={data.nps} before={data.previous.nps} />
-              ) : (
-                <span className="delta muted">No NPS answers yet</span>
-              )}
-            </Kpi>
+            <Link
+              to={`/history?${new URLSearchParams({ ...Object.fromEntries(filters.params), followup: '1' })}`}
+              className={`kpi kpi-link${data.followups ? ' kpi-warn' : ''}`}
+            >
+              <span className="kpi-label">Follow-up requests</span>
+              <span className="kpi-value tabular">{data.followups}</span>
+              <span className="delta muted">{data.followups ? 'Guests waiting for a call back →' : 'No one waiting'}</span>
+            </Link>
             <Link
               to={`/history?${new URLSearchParams({ ...Object.fromEntries(filters.params), rating: 'low', status: 'new' })}`}
               className={`kpi kpi-link${data.attention ? ' kpi-alert' : ''}`}
@@ -118,7 +119,7 @@ export default function Overview() {
                 <h2 className="panel-title">Scores by area</h2>
                 <span className="muted small">Average of 1–5</span>
               </div>
-              <CategoryBars items={CATEGORY_KEYS.map((k) => ({ label: CATEGORY_LABELS[k].en, value: data.categories[k] }))} />
+              <CategoryBars items={GUEST_CATEGORY_KEYS.map((k) => ({ label: CATEGORY_LABELS[k].en, value: data.categories[k] }))} />
             </section>
           </div>
 
@@ -134,7 +135,6 @@ export default function Overview() {
                       <th scope="col">Branch</th>
                       <th scope="col" className="num">Responses</th>
                       <th scope="col" className="num">Avg</th>
-                      <th scope="col" className="num">NPS</th>
                       <th scope="col" className="num">1–2★</th>
                     </tr>
                   </thead>
@@ -153,7 +153,6 @@ export default function Overview() {
                             {fmtAvg(l.avg)}
                           </span>
                         </td>
-                        <td className="num tabular">{fmtNps(l.nps)}</td>
                         <td className="num tabular">{l.low || '—'}</td>
                       </tr>
                     ))}

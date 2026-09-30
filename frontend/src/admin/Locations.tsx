@@ -1,5 +1,5 @@
-import { useEffect, useState, type FormEvent } from 'react'
-import { api, ApiError } from '../lib/api'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { api, ApiError, uploadFile } from '../lib/api'
 import { relativeTime } from '../lib/format'
 import type { Location } from '../lib/types'
 import { Button } from '../ui/Button'
@@ -70,7 +70,10 @@ export default function Locations() {
           {data.map((l) => (
             <li key={l.id} className={`loc${l.is_active ? '' : ' loc-off'}`}>
               <div className="loc-top">
-                <div>
+                <span className="logo-preview logo-sm" data-bg={l.logo_url ? l.logo_bg : 'none'} aria-hidden>
+                  {l.logo_url ? <img src={l.logo_url} alt="" width={48} height={48} /> : l.name.slice(0, 1).toUpperCase()}
+                </span>
+                <div className="loc-title">
                   <h2 className="loc-name">{l.name}</h2>
                   <p className="muted small">
                     {[l.name_ar, l.city].filter(Boolean).join(' · ') || '—'}
@@ -124,6 +127,114 @@ export default function Locations() {
   )
 }
 
+/** Downscale to ≤512px PNG in the browser so uploads stay small (iOS 15-safe: no WebP encode). */
+async function resizeLogo(file: File, max = 512): Promise<Blob> {
+  const url = URL.createObjectURL(file)
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image()
+      el.onload = () => resolve(el)
+      el.onerror = () => reject(new Error('That file could not be read as an image.'))
+      el.src = url
+    })
+    const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale))
+    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale))
+    canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height)
+    return await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not process the image.'))), 'image/png'),
+    )
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+type LogoChange = { kind: 'keep' } | { kind: 'remove' } | { kind: 'new'; blob: Blob; preview: string }
+
+function LogoField({
+  current,
+  change,
+  onChange,
+  bg,
+  onBg,
+  name,
+}: {
+  current: string | null
+  change: LogoChange
+  onChange: (c: LogoChange) => void
+  bg: 'light' | 'dark'
+  onBg: (bg: 'light' | 'dark') => void
+  name: string
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [error, setError] = useState<string>()
+  const preview = change.kind === 'new' ? change.preview : change.kind === 'remove' ? null : current
+
+  async function onFile(file: File | undefined) {
+    if (!file) return
+    setError(undefined)
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) return setError('Use a PNG, JPG or WebP image.')
+    try {
+      const blob = await resizeLogo(file)
+      onChange({ kind: 'new', blob, preview: URL.createObjectURL(blob) })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not read that image.')
+    }
+  }
+
+  return (
+    <div className="field">
+      <span className="field-label">Logo</span>
+      <div className="logo-field">
+        <span className="logo-preview" data-bg={preview ? bg : 'none'} aria-hidden>
+          {preview ? <img src={preview} alt="" width={72} height={72} /> : (name || 'B').slice(0, 1).toUpperCase()}
+        </span>
+        <div className="logo-controls">
+          <div className="logo-buttons">
+            <Button size="sm" onClick={() => inputRef.current?.click()}>
+              {preview ? 'Replace logo' : 'Upload logo'}
+            </Button>
+            {preview ? (
+              <Button size="sm" variant="ghost" onClick={() => onChange({ kind: current ? 'remove' : 'keep' })}>
+                Remove
+              </Button>
+            ) : null}
+          </div>
+          {preview ? (
+            <div className="segmented" role="group" aria-label="Tile behind the logo">
+              <button type="button" aria-pressed={bg === 'light'} onClick={() => onBg('light')}>
+                Light tile
+              </button>
+              <button type="button" aria-pressed={bg === 'dark'} onClick={() => onBg('dark')}>
+                Dark tile
+              </button>
+            </div>
+          ) : null}
+          <span className="field-hint">PNG, JPG or WebP. Square logos look best; use the dark tile for white logos.</span>
+          {error ? (
+            <span className="field-error" role="alert">
+              {error}
+            </span>
+          ) : null}
+        </div>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          className="sr-only"
+          tabIndex={-1}
+          aria-label="Choose logo file"
+          onChange={(e) => {
+            onFile(e.target.files?.[0])
+            e.target.value = ''
+          }}
+        />
+      </div>
+    </div>
+  )
+}
+
 function LocationForm({
   location,
   onClose,
@@ -137,8 +248,17 @@ function LocationForm({
   const [nameAr, setNameAr] = useState(location?.name_ar ?? '')
   const [city, setCity] = useState(location?.city ?? '')
   const [active, setActive] = useState(location?.is_active ?? true)
+  const [logoBg, setLogoBg] = useState<'light' | 'dark'>(location?.logo_bg ?? 'light')
+  const [logo, setLogo] = useState<LogoChange>({ kind: 'keep' })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [pending, setPending] = useState(false)
+
+  useEffect(
+    () => () => {
+      if (logo.kind === 'new') URL.revokeObjectURL(logo.preview)
+    },
+    [logo],
+  )
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -146,16 +266,19 @@ function LocationForm({
     setPending(true)
     setErrors({})
     try {
-      const body = { name: name.trim(), name_ar: nameAr.trim(), city: city.trim(), is_active: active }
-      if (location) await api(`/locations/${location.id}/`, { method: 'PATCH', body })
-      else await api('/locations/', { method: 'POST', body })
+      const body = { name: name.trim(), name_ar: nameAr.trim(), city: city.trim(), is_active: active, logo_bg: logoBg }
+      const saved = location
+        ? await api<Location>(`/locations/${location.id}/`, { method: 'PATCH', body })
+        : await api<Location>('/locations/', { method: 'POST', body })
+      if (logo.kind === 'new') await uploadFile(`/locations/${saved.id}/logo/`, logo.blob, 'logo.png')
+      if (logo.kind === 'remove') await api(`/locations/${saved.id}/logo/`, { method: 'DELETE' })
       onSaved(location ? 'Branch saved' : 'Branch created. Its guest link is ready.')
     } catch (err) {
       const data = err instanceof ApiError ? (err.data as Record<string, string[]>) : null
       setErrors(
         data && typeof data === 'object'
           ? Object.fromEntries(Object.entries(data).map(([k, v]) => [k, Array.isArray(v) ? v[0] : String(v)]))
-          : { name: 'Could not save. Try again.' },
+          : { name: err instanceof Error ? err.message : 'Could not save. Try again.' },
       )
     } finally {
       setPending(false)
@@ -178,6 +301,8 @@ function LocationForm({
       }
     >
       <form id="loc-form" className="form-stack" onSubmit={onSubmit} noValidate>
+        <LogoField current={location?.logo_url ?? null} change={logo} onChange={setLogo} bg={logoBg} onBg={setLogoBg} name={name} />
+        {errors.file ? <span className="field-error">{errors.file}</span> : null}
         <Field label="Branch name" required error={errors.name}>
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. The Avenues" />
         </Field>

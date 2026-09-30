@@ -69,6 +69,20 @@ export async function api<T = unknown>(
 /** SWR fetcher — keys are API paths. */
 export const fetcher = <T,>(path: string) => api<T>(path)
 
+export async function uploadFile<T = unknown>(path: string, file: Blob, filename: string): Promise<T> {
+  const form = new FormData()
+  form.append('file', file, filename)
+  const token = getToken()
+  const res = await fetch(`/api${path}`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Token ${token}` } : {},
+    body: form,
+  })
+  const data = await res.json().catch(() => null)
+  if (!res.ok) throw new ApiError(res.status, data, errorMessage(data, 'Upload failed. Try again.'))
+  return data as T
+}
+
 export async function downloadFile(path: string, filename: string) {
   const token = getToken()
   const res = await fetch(`/api${path}`, { headers: token ? { Authorization: `Token ${token}` } : {} })

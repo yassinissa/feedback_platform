@@ -51,6 +51,9 @@ export const CATEGORY_LABELS: Record<CategoryKey, Record<Lang, string>> = {
   value: { en: 'Value for money', ar: 'القيمة مقابل السعر' },
 }
 
+/** The three areas the guest form asks about (older entries may also have cleanliness/value). */
+export const GUEST_CATEGORY_KEYS: CategoryKey[] = ['food', 'service', 'ambiance']
+
 export const RATING_WORDS: Record<Lang, string[]> = {
   en: ['Poor', 'Fair', 'Good', 'Great', 'Excellent'],
   ar: ['سيئ', 'مقبول', 'جيد', 'رائع', 'ممتاز'],

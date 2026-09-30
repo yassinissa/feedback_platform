@@ -30,6 +30,8 @@ NEGATIVE_HIGHLIGHTS = [
 ]
 ALL_HIGHLIGHTS = set(POSITIVE_HIGHLIGHTS + NEGATIVE_HIGHLIGHTS)
 CATEGORY_FIELDS = ["food", "service", "ambiance", "cleanliness", "value"]
+# What the current guest form asks for. cleanliness/value remain for older entries.
+GUEST_CATEGORIES = ["food", "service", "ambiance"]
 
 
 class Location(models.Model):
@@ -41,11 +43,25 @@ class Location(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # Logo lives in the database: Render's disk is wiped on every deploy.
+    # The admin resizes it in the browser (≤512px) before upload, so rows stay small.
+    logo = models.BinaryField(null=True, blank=True, editable=False)
+    logo_type = models.CharField(max_length=20, blank=True)
+    logo_updated = models.DateTimeField(null=True, blank=True)
+    # Tile behind the logo on the guest screen — "dark" for white/light logos.
+    logo_bg = models.CharField(max_length=5, choices=[("light", "Light"), ("dark", "Dark")], default="light")
+
     class Meta:
         ordering = ["name"]
 
     def __str__(self):
         return self.name
+
+    @property
+    def logo_url(self):
+        if not self.logo or not self.logo_updated:
+            return None
+        return f"/api/public/locations/{self.slug}/logo/?v={int(self.logo_updated.timestamp())}"
 
     def save(self, *args, **kwargs):
         if not self.slug:

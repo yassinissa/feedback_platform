@@ -62,3 +62,55 @@ class ScopingTests(APITestCase):
         res = self.client.post("/api/feedback/mark_reviewed/")
         self.assertEqual(res.data["updated"], 2)
         self.assertFalse(Feedback.objects.filter(status="new").exists())
+
+
+class SimpleFormTests(APITestCase):
+    def setUp(self):
+        self.loc = Location.objects.create(name="Avenues")
+        self.url = f"/api/public/locations/{self.loc.slug}/feedback/"
+
+    def test_overall_is_rounded_mean_of_three_ratings(self):
+        self.client.post(self.url, {"food": 5, "service": 4, "ambiance": 4}, format="json")
+        self.assertEqual(Feedback.objects.get().overall, 4)  # 4.33 -> 4
+
+    def test_needs_at_least_one_rating(self):
+        res = self.client.post(self.url, {"comment": "hi"}, format="json")
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("overall", res.data)
+
+
+class LogoTests(APITestCase):
+    PNG = bytes.fromhex(
+        "89504e470d0a1a0a0000000d4948445200000001000000010806000000"
+        "1f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082"
+    )
+
+    def setUp(self):
+        self.loc = Location.objects.create(name="Avenues")
+        self.admin = User.objects.create_user("admin", password="pass12345", is_staff=True)
+        self.client.force_authenticate(self.admin)
+
+    def upload(self, data, name="logo.png"):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        return self.client.post(f"/api/locations/{self.loc.id}/logo/", {"file": SimpleUploadedFile(name, data)}, format="multipart")
+
+    def test_upload_and_serve(self):
+        res = self.upload(self.PNG)
+        self.assertEqual(res.status_code, 200)
+        url = res.data["logo_url"]
+        self.client.force_authenticate(None)
+        public = self.client.get(f"/api/public/locations/{self.loc.slug}/").data
+        self.assertEqual(public["logo_url"], url)
+        img = self.client.get(url)
+        self.assertEqual(img["Content-Type"], "image/png")
+        self.assertEqual(img.content, self.PNG)
+
+    def test_rejects_svg_and_non_images(self):
+        self.assertEqual(self.upload(b"<svg onload=alert(1)>", "x.svg").status_code, 400)
+        self.assertEqual(self.upload(b"hello", "x.png").status_code, 400)
+
+    def test_manager_cannot_upload(self):
+        mgr = User.objects.create_user("mgr", password="pass12345")
+        self.client.force_authenticate(mgr)
+        self.assertIn(self.upload(self.PNG).status_code, (403, 404))
