@@ -1,7 +1,8 @@
 # Render Blueprint — New > Blueprint, pick this repo, and Render creates both services.
 databases:
   - name: feedback-db
-    plan: free
+    plan: basic-256mb
+    region: oregon
     databaseName: feedback
     user: feedback
 
@@ -9,7 +10,8 @@ services:
   - type: web
     name: feedback-platform
     runtime: python
-    plan: free
+    region: oregon
+    plan: starter
     buildCommand: ./build.sh
     startCommand: cd backend && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 60
     healthCheckPath: /api/health/

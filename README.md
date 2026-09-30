@@ -75,9 +75,8 @@ Tests: `cd backend && .venv/Scripts/python manage.py test feedback`
 Optional env: `SEED_DEMO=1` loads demo data; `APP_TIME_ZONE` (default
 `Asia/Kuwait`) decides where "a day" starts and ends in History.
 
-> Render's free Postgres expires after 30 days and free web services sleep
-> when idle (first load takes ~30 s). Use a paid plan for real branches — the
-> iPad offline queue covers the wake-up delay either way.
+> Live: https://feedback-platform-gu39.onrender.com (Starter web service +
+> Basic-256MB Postgres, Oregon).
 
 ## Browser support
 
