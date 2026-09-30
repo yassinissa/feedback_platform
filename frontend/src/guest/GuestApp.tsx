@@ -91,7 +91,6 @@ export default function GuestApp() {
   if (load.kind !== 'ready') {
     return (
       <div className="guest min-h-screen" dir={dir}>
-        <Ambient mood={0} />
         <div className="guest-center">
           {load.kind === 'loading' ? <span className="spinner" aria-label="Loading" /> : null}
           {load.kind === 'missing' ? (
@@ -117,17 +116,6 @@ export default function GuestApp() {
     <FormProvider key={session} lang={lang} table={table}>
       <Flow location={load.location} onToggleLang={() => setLang((l) => (l === 'en' ? 'ar' : 'en'))} onDone={newGuest} />
     </FormProvider>
-  )
-}
-
-function Ambient({ mood }: { mood: number }) {
-  return (
-    <div className="ambient" aria-hidden>
-      {[0, 1, 2, 3, 4, 5].map((m) => (
-        <div key={m} className={`ambient-layer ambient-${m}`} data-on={m === mood || undefined} />
-      ))}
-      <div className="grain" />
-    </div>
   )
 }
 
@@ -200,13 +188,10 @@ function Flow({ location, onToggleLang, onDone }: { location: PublicLocation; on
     }
   }
 
-  const avg = averageRating(state.ratings)
-  const mood = avg == null ? 0 : Math.round(avg)
   const inForm = step < STEPS
 
   return (
     <div className="guest min-h-screen" dir={dir}>
-      <Ambient mood={mood} />
       <header className="guest-top">
         <div className="venue">
           <BranchMark location={location} name={name} />

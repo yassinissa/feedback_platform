@@ -16,8 +16,8 @@ function Face({ rating }: { rating: number }) {
   return (
     <svg className="face-svg" viewBox="0 0 48 48" aria-hidden>
       <circle cx="24" cy="24" r="21" className="face-ring" />
-      <circle cx="17" cy="19" r="2.6" className="face-eye" />
-      <circle cx="31" cy="19" r="2.6" className="face-eye" />
+      <circle cx="17.5" cy="19.5" r="2.1" className="face-eye" />
+      <circle cx="30.5" cy="19.5" r="2.1" className="face-eye" />
       <path d={MOUTHS[rating - 1]} className="face-mouth" />
     </svg>
   )
@@ -69,9 +69,7 @@ function RatingCard({ category, missing }: { category: GuestCategory; missing: b
         <h2 className="rate-label" id={labelId}>
           {label}
         </h2>
-        <span className="rate-word" aria-live="polite">
-          {value ? RATING_WORDS[meta.lang][value - 1] : meta.t.tapToRate}
-        </span>
+        {value ? null : <span className="rate-hint">{meta.t.tapToRate}</span>}
       </header>
       <div className="faces" role="radiogroup" aria-labelledby={labelId} data-chosen={value ? true : undefined}>
         {[1, 2, 3, 4, 5].map((n) => (
@@ -80,12 +78,12 @@ function RatingCard({ category, missing }: { category: GuestCategory; missing: b
             type="button"
             role="radio"
             aria-checked={value === n}
-            aria-label={RATING_WORDS[meta.lang][n - 1]}
             className="face"
             data-mood={n}
             onClick={() => dispatch({ type: 'rate', key: category, value: n })}
           >
             <Face rating={n} />
+            <span className="face-word">{RATING_WORDS[meta.lang][n - 1]}</span>
           </button>
         ))}
       </div>
@@ -115,15 +113,20 @@ export function RateStep({ missing }: { missing: GuestCategory[] }) {
             {meta.t.improve}
             <span className="opt">{meta.t.optional}</span>
           </h2>
-          <div className="chips">
+          <div className="toggles">
             {NEGATIVE_HIGHLIGHTS.map((key) => (
               <button
                 key={key}
                 type="button"
-                className="chip chip-lg"
+                className="toggle"
                 aria-pressed={state.highlights.includes(key)}
                 onClick={() => dispatch({ type: 'toggleHighlight', key })}
               >
+                <span className="toggle-box" aria-hidden>
+                  <svg viewBox="0 0 12 12" width="12" height="12">
+                    <path d="M2.5 6.2l2.3 2.3 4.7-4.9" />
+                  </svg>
+                </span>
                 {HIGHLIGHT_LABELS[key][meta.lang]}
               </button>
             ))}
@@ -201,8 +204,10 @@ export function AboutStep({ contactError }: { contactError?: string }) {
       <section className={`contact-card${sorry ? ' contact-sorry' : ''}`}>
         {sorry ? (
           <div className="sorry">
-            <p className="sorry-title">{meta.t.sorryTitle}</p>
-            <p className="sorry-body">{meta.t.sorryBody}</p>
+            <div className="sorry-text">
+              <p className="sorry-title">{meta.t.sorryTitle}</p>
+              <p className="sorry-body">{meta.t.sorryBody}</p>
+            </div>
           </div>
         ) : null}
         <label className="consent-row" htmlFor={ids.consent}>

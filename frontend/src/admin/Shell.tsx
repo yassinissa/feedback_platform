@@ -37,10 +37,10 @@ export function Logo() {
   return (
     <span className="logo">
       <svg width="28" height="28" viewBox="0 0 64 64" aria-hidden>
-        <rect width="64" height="64" rx="16" fill="#171926" />
-        <path d="M18 40c4 6 10 9 14 9s10-3 14-9" fill="none" stroke="#818cf8" strokeWidth="5" strokeLinecap="round" />
-        <circle cx="23" cy="25" r="4" fill="#eceef6" />
-        <circle cx="41" cy="25" r="4" fill="#eceef6" />
+        <rect width="64" height="64" rx="14" fill="#0f6e66" />
+        <circle cx="23.5" cy="26" r="3.6" fill="#fff" />
+        <circle cx="40.5" cy="26" r="3.6" fill="#fff" />
+        <path d="M20 38.5c3.5 5 8 7.5 12 7.5s8.5-2.5 12-7.5" fill="none" stroke="#fff" strokeWidth="4.5" strokeLinecap="round" />
       </svg>
       <span className="logo-word" translate="no">Aftertaste</span>
     </span>

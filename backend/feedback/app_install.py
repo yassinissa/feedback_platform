@@ -17,23 +17,22 @@ from PIL import Image, ImageDraw
 from .models import Location
 
 ICON_SIZES = {180, 192, 512}
-DARK = (14, 15, 23)
-INDIGO = (129, 140, 248)
-INK = (236, 238, 246)
+EVERGREEN = (15, 110, 102)
+WHITE = (255, 255, 255)
 LONG_CACHE = "public, max-age=31536000, immutable"
 
 
 def _face_icon(size: int) -> Image.Image:
-    """Fallback icon (no logo): the smiling mark on the app's dark tile."""
+    """Fallback icon (no logo): the smiling mark on the evergreen tile."""
     scale = 4  # draw large, downsample for smooth edges
     s = size * scale
-    img = Image.new("RGB", (s, s), DARK)
+    img = Image.new("RGB", (s, s), EVERGREEN)
     d = ImageDraw.Draw(img)
     eye_r = s * 0.065
     for cx in (s * 0.36, s * 0.64):
-        d.ellipse([cx - eye_r, s * 0.39 - eye_r, cx + eye_r, s * 0.39 + eye_r], fill=INK)
+        d.ellipse([cx - eye_r, s * 0.39 - eye_r, cx + eye_r, s * 0.39 + eye_r], fill=WHITE)
     w = int(s * 0.075)
-    d.arc([s * 0.27, s * 0.30, s * 0.73, s * 0.76], start=25, end=155, fill=INDIGO, width=w)
+    d.arc([s * 0.27, s * 0.30, s * 0.73, s * 0.76], start=25, end=155, fill=WHITE, width=w)
     return img.resize((size, size), Image.LANCZOS)
 
 
@@ -42,7 +41,7 @@ def _render_icon(logo: bytes | None, logo_bg: str, size: int) -> bytes:
     if not logo:
         img = _face_icon(size)
     else:
-        bg = (255, 255, 255) if logo_bg == "light" else (11, 11, 16)
+        bg = (255, 255, 255) if logo_bg == "light" else (20, 20, 20)
         img = Image.new("RGB", (size, size), bg)
         mark = Image.open(BytesIO(logo)).convert("RGBA")
         box = int(size * 0.74)  # iOS rounds the corners; keep the logo clear of them
@@ -89,8 +88,8 @@ def branch_manifest(request, slug):
         "scope": start,
         "display": "standalone",
         "orientation": "any",
-        "background_color": "#07070b",
-        "theme_color": "#07070b",
+        "background_color": "#f6f4f0",
+        "theme_color": "#ffffff",
         "icons": [
             {"src": icon_url(loc, 192), "sizes": "192x192", "type": "image/png", "purpose": "any"},
             {"src": icon_url(loc, 512), "sizes": "512x512", "type": "image/png", "purpose": "any"},

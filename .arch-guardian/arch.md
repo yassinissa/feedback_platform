@@ -32,14 +32,16 @@ Single source of truth for arch-guardian reviews.
    `admin/` (and vice versa); shared code lives in `lib/` and `ui/`.
 3. **Highlight/category keys are defined twice on purpose**: validated in
    `models.py`, labelled (EN/AR) in `lib/copy.ts`. Change both together.
-4. **iOS 15 floor**: no `color-mix()`, `:has()`, container queries, or
+4. **Light "Linen & Evergreen" theme**: colours live only as tokens in `styles/base.css`
+   (checked for WCAG AA contrast); no gradients/glows, shadows only for depth.
+5. **iOS 15 floor**: no `color-mix()`, `:has()`, container queries, or
    unguarded `dvh`; add translucent colours as `rgba()` tokens in `base.css`.
-5. **Public endpoints stay idempotent and throttled** (`client_id`, honeypot,
+6. **Public endpoints stay idempotent and throttled** (`client_id`, honeypot,
    `feedback_submit` rate).
-6. **Branch logos live in the database** (BinaryField, sniffed PNG/JPEG/WebP, no SVG),
+7. **Branch logos live in the database** (BinaryField, sniffed PNG/JPEG/WebP, no SVG),
    served from /api/public/locations/<slug>/logo/?v=<ts>. Render's disk is ephemeral.
-7. Guest form asks food/service/ambiance only; overall is derived server-side.
-8. Components use explicit variants (`variant="primary"`) and context providers
+8. Guest form asks food/service/ambiance only; overall is derived server-side.
+9. Components use explicit variants (`variant="primary"`) and context providers
    for shared state, not boolean-prop flags (composition-patterns skill).
 
 ## Stack
