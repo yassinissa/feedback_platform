@@ -1,6 +1,6 @@
 {
-  "name": "Guest Feedback",
-  "short_name": "Feedback",
+  "name": "Green Hills Feedback",
+  "short_name": "GH Feedback",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f6f4f0",

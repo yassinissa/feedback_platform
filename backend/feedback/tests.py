@@ -143,3 +143,52 @@ class InstallAsAppTests(APITestCase):
         self.assertIn("apple-touch-icon", tags)
         self.assertNotIn("<b>", tags)
         self.assertIsNone(guest_head_tags("missing-branch"))
+
+
+class StatsAggregationTests(APITestCase):
+    """Dashboard numbers come from SQL aggregates; check them against plain Python."""
+
+    def setUp(self):
+        from collections import Counter
+
+        self.Counter = Counter
+        a, b = Location.objects.create(name="A"), Location.objects.create(name="B")
+        data = [
+            (a, 5, 10, ["tasty_food"]), (a, 4, 9, []), (a, 2, 3, ["slow_service", "noisy"]),
+            (b, 1, 0, ["slow_service"]), (b, 3, None, ["noisy", "pricey"]), (b, 5, 8, []),
+        ]
+        for loc, overall, nps, hl in data:
+            Feedback.objects.create(location=loc, overall=overall, nps=nps, highlights=hl)
+        self.data = data
+        admin = User.objects.create_user("admin", password="pass12345", is_staff=True)
+        self.client.force_authenticate(admin)
+
+    def test_stats_match_python_reference(self):
+        s = self.client.get("/api/stats/").json()
+        self.assertEqual(s["count"], 6)
+        self.assertEqual(s["distribution"], {"1": 1, "2": 1, "3": 1, "4": 1, "5": 2})
+        scores = [n for *_, n, _ in self.data if n is not None]
+        expected_nps = round((sum(n >= 9 for n in scores) - sum(n <= 6 for n in scores)) * 100 / len(scores))
+        self.assertEqual(s["nps"], expected_nps)
+        self.assertEqual(s["nps_responses"], 5)
+        expected_hl = self.Counter(h for *_, hl in self.data for h in hl)
+        self.assertEqual({h["key"]: h["count"] for h in s["highlights"]}, dict(expected_hl))
+        by = {b["name"]: b for b in s["by_location"]}
+        self.assertEqual(by["A"]["count"], 3)
+        self.assertEqual(by["B"]["low"], 1)
+        self.assertEqual(by["A"]["avg"], round(11 / 3, 2))
+
+    def test_history_nps_per_day(self):
+        days = self.client.get("/api/history/").json()
+        self.assertEqual(len(days), 1)
+        self.assertEqual(days[0]["count"], 6)
+        self.assertEqual(days[0]["nps"], self.client.get("/api/stats/").json()["nps"])
+
+    def test_check_stats_command_runs(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        out = StringIO()
+        call_command("check_stats", stdout=out)
+        self.assertIn("HTTP 200", out.getvalue())

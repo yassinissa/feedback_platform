@@ -41,10 +41,27 @@
   gap: 10px;
   padding: 4px 8px;
 }
+.logo-img {
+  display: block;
+  height: 42px;
+  width: auto;
+}
+.topbar .logo-img {
+  height: 34px;
+}
+.login-card .logo-img {
+  height: 48px;
+}
+.logo-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--border-strong);
+}
 .logo-word {
-  font-weight: 650;
-  font-size: 16.5px;
-  letter-spacing: -0.02em;
+  font-weight: 550;
+  font-size: 14.5px;
+  color: var(--text-2);
+  letter-spacing: -0.01em;
 }
 .side-link {
   display: flex;
@@ -486,7 +503,7 @@ select.input-sm {
   height: 10px;
   border-radius: 2px;
   background: var(--accent-soft-2);
-  border: 1px solid #b7d6d0;
+  border: 1px solid #b9d6b3;
 }
 .key-line {
   width: 14px;

@@ -6,40 +6,37 @@ a web manifest whose start_url is that branch's guest form.
 """
 
 import json
+from pathlib import Path
 from functools import lru_cache
 from io import BytesIO
 
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils.html import escape
-from PIL import Image, ImageDraw
+from PIL import Image
 
 from .models import Location
 
 ICON_SIZES = {180, 192, 512}
-EVERGREEN = (15, 110, 102)
-WHITE = (255, 255, 255)
 LONG_CACHE = "public, max-age=31536000, immutable"
+BRAND_LOGO = Path(__file__).resolve().parent / "assets" / "green-hills-logo.png"
 
 
-def _face_icon(size: int) -> Image.Image:
-    """Fallback icon (no logo): the smiling mark on the evergreen tile."""
-    scale = 4  # draw large, downsample for smooth edges
-    s = size * scale
-    img = Image.new("RGB", (s, s), EVERGREEN)
-    d = ImageDraw.Draw(img)
-    eye_r = s * 0.065
-    for cx in (s * 0.36, s * 0.64):
-        d.ellipse([cx - eye_r, s * 0.39 - eye_r, cx + eye_r, s * 0.39 + eye_r], fill=WHITE)
-    w = int(s * 0.075)
-    d.arc([s * 0.27, s * 0.30, s * 0.73, s * 0.76], start=25, end=155, fill=WHITE, width=w)
-    return img.resize((size, size), Image.LANCZOS)
+def _brand_icon(size: int) -> Image.Image:
+    """Fallback icon (branch without a logo, or the admin): the Green Hills lockup on white."""
+    img = Image.new("RGB", (size, size), (255, 255, 255))
+    logo = Image.open(BRAND_LOGO).convert("RGBA")
+    width = int(size * 0.8)  # clear of the corners iOS rounds off
+    height = round(logo.height * width / logo.width)
+    logo = logo.resize((width, height), Image.LANCZOS)
+    img.paste(logo, ((size - width) // 2, (size - height) // 2), logo)
+    return img
 
 
 @lru_cache(maxsize=64)
 def _render_icon(logo: bytes | None, logo_bg: str, size: int) -> bytes:
     if not logo:
-        img = _face_icon(size)
+        img = _brand_icon(size)
     else:
         bg = (255, 255, 255) if logo_bg == "light" else (20, 20, 20)
         img = Image.new("RGB", (size, size), bg)

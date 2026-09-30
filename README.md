@@ -1,4 +1,4 @@
-# Aftertaste — restaurant guest feedback
+# Green Hills Feedback — restaurant guest feedback
 
 A feedback platform for restaurant branches. Each branch gets its own guest link
 (and printable QR code) that runs on the branch iPad; guests rate their visit in

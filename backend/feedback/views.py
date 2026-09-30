@@ -1,8 +1,10 @@
 import csv
+import logging
 from collections import Counter
 from datetime import timedelta
 
 from django.contrib.auth import authenticate, get_user_model
+from django.db import DatabaseError, connection, transaction
 from django.db.models import Avg, Count, Max, Q
 from django.db.models.functions import TruncDate
 from django.http import HttpResponse
@@ -31,6 +33,7 @@ from .serializers import (
 )
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 MAX_LOGO_BYTES = 1_000_000
 # Sniff real bytes rather than trusting the upload's declared type. SVG is refused:
@@ -50,13 +53,52 @@ def sniff_image(data: bytes):
     return None
 
 
-def nps_score(values):
-    values = [v for v in values if v is not None]
-    if not values:
-        return None
-    promoters = sum(1 for v in values if v >= 9)
-    detractors = sum(1 for v in values if v <= 6)
-    return round((promoters - detractors) * 100 / len(values))
+# ── Aggregation helpers ─────────────────────────────────────────────
+# All dashboard numbers are computed by the database, so memory and time stay
+# flat as history grows (12 branches × years of feedback).
+
+NPS_AGGREGATES = {
+    "nps_n": Count("id", filter=Q(nps__isnull=False)),
+    "nps_pro": Count("id", filter=Q(nps__gte=9)),
+    "nps_det": Count("id", filter=Q(nps__lte=6)),
+}
+
+
+def nps_from(row):
+    """Net Promoter Score from aggregated counts: % promoters − % detractors."""
+    n = row["nps_n"]
+    return round((row["nps_pro"] - row["nps_det"]) * 100 / n) if n else None
+
+
+def highlight_counts(qs, limit=14):
+    """Most-picked highlight keys, unnested and counted in SQL."""
+    sql, params = qs.order_by().values("highlights").query.sql_with_params()
+    if connection.vendor == "postgresql":
+        query = (
+            f"SELECT h, COUNT(*) FROM ({sql}) AS s "
+            f"CROSS JOIN LATERAL jsonb_array_elements_text(s.highlights) AS h "
+            f"GROUP BY h ORDER BY 2 DESC, 1 LIMIT %s"
+        )
+    elif connection.vendor == "sqlite":
+        query = (
+            f"SELECT j.value, COUNT(*) FROM ({sql}) AS s, json_each(s.highlights) AS j "
+            f"GROUP BY j.value ORDER BY 2 DESC, 1 LIMIT %s"
+        )
+    else:
+        return _stream_highlight_counts(qs, limit)
+    try:
+        with transaction.atomic(), connection.cursor() as cursor:
+            cursor.execute(query, [*params, limit])
+            return [tuple(row) for row in cursor.fetchall()]
+    except DatabaseError:
+        logger.exception("Highlight SQL failed; falling back to streaming count")
+        return _stream_highlight_counts(qs, limit)
+
+
+def _stream_highlight_counts(qs, limit):
+    """Portable fallback: streams rows in chunks, so memory stays flat."""
+    counts = Counter(h for hs in qs.values_list("highlights", flat=True).iterator(chunk_size=2000) for h in hs or [])
+    return counts.most_common(limit)
 
 
 def rounded(value, places=2):
@@ -222,7 +264,7 @@ class FeedbackViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.U
                 "status", "staff_note"]
         writer.writerow(cols)
         tz = timezone.get_current_timezone()
-        for f in qs:
+        for f in qs.iterator(chunk_size=1000):
             writer.writerow([
                 timezone.localtime(f.created_at, tz).strftime("%Y-%m-%d %H:%M"), f.location.name, f.overall,
                 *[getattr(f, c) or "" for c in CATEGORY_FIELDS], "" if f.nps is None else f.nps,
@@ -243,14 +285,14 @@ class StatsView(APIView):
             **{c: Avg(c) for c in CATEGORY_FIELDS},
             attention=Count("id", filter=Q(overall__lte=2, status="new")),
             followups=Count("id", filter=Q(contact_consent=True) & ~Q(status="resolved")),
+            **{f"r{k}": Count("id", filter=Q(overall=k)) for k in range(1, 6)},
+            **NPS_AGGREGATES,
         )
-        rows = list(qs.values("overall", "nps", "highlights", "location_id"))
 
         # Same-length window immediately before, for trend deltas.
         prev_lo, prev_hi = day_bounds(start - timedelta(days=span), start - timedelta(days=1))
         prev_request_qs = scoped_feedback(request, with_dates=False).filter(created_at__gte=prev_lo, created_at__lt=prev_hi)
-        prev = prev_request_qs.aggregate(count=Count("id"), avg=Avg("overall"))
-        prev_nps = nps_score(prev_request_qs.values_list("nps", flat=True))
+        prev = prev_request_qs.aggregate(count=Count("id"), avg=Avg("overall"), **NPS_AGGREGATES)
 
         tz = timezone.get_current_timezone()
         daily = {
@@ -265,38 +307,35 @@ class StatsView(APIView):
             r = daily.get(d)
             series.append({"date": d.isoformat(), "count": r["count"] if r else 0, "avg": rounded(r["avg"]) if r else None})
 
-        highlights = Counter(h for r in rows for h in (r["highlights"] or []))
-
-        by_location = []
-        locs = {l.id: l for l in visible_locations(request.user)}
-        grouped = {}
-        for r in rows:
-            grouped.setdefault(r["location_id"], []).append(r)
-        for loc_id, items in grouped.items():
-            by_location.append({
-                "id": loc_id,
-                "name": locs[loc_id].name if loc_id in locs else "—",
-                "count": len(items),
-                "avg": rounded(sum(i["overall"] for i in items) / len(items)),
-                "nps": nps_score(i["nps"] for i in items),
-                "low": sum(1 for i in items if i["overall"] <= 2),
-            })
+        by_location = [
+            {
+                "id": r["location_id"],
+                "name": r["location__name"],
+                "count": r["count"],
+                "avg": rounded(r["avg"]),
+                "nps": nps_from(r),
+                "low": r["low"],
+            }
+            for r in qs.order_by().values("location_id", "location__name").annotate(
+                count=Count("id"), avg=Avg("overall"), low=Count("id", filter=Q(overall__lte=2)), **NPS_AGGREGATES
+            )
+        ]
         by_location.sort(key=lambda x: (-x["count"], x["name"]))
 
         return Response({
             "range": {"from": start.isoformat(), "to": end.isoformat()},
             "count": agg["count"],
             "avg": rounded(agg["avg"]),
-            "nps": nps_score(r["nps"] for r in rows),
-            "nps_responses": sum(1 for r in rows if r["nps"] is not None),
+            "nps": nps_from(agg),
+            "nps_responses": agg["nps_n"],
             "attention": agg["attention"],
             "followups": agg["followups"],
-            "distribution": {str(k): sum(1 for r in rows if r["overall"] == k) for k in range(1, 6)},
+            "distribution": {str(k): agg[f"r{k}"] for k in range(1, 6)},
             "categories": {c: rounded(agg[c]) for c in CATEGORY_FIELDS},
             "series": series,
-            "highlights": [{"key": k, "count": v} for k, v in highlights.most_common(14)],
+            "highlights": [{"key": k, "count": v} for k, v in highlight_counts(qs)],
             "by_location": by_location,
-            "previous": {"count": prev["count"], "avg": rounded(prev["avg"]), "nps": prev_nps},
+            "previous": {"count": prev["count"], "avg": rounded(prev["avg"]), "nps": nps_from(prev)},
         })
 
 
@@ -316,13 +355,10 @@ class HistoryView(APIView):
                 new=Count("id", filter=Q(status="new")),
                 comments=Count("id", filter=~Q(comment="")),
                 locations=Count("location", distinct=True),
+                **NPS_AGGREGATES,
             )
             .order_by("-day")
         )
-        # NPS per day needs the raw values.
-        nps_by_day = {}
-        for day, n in qs.annotate(day=TruncDate("created_at", tzinfo=tz)).exclude(nps=None).values_list("day", "nps"):
-            nps_by_day.setdefault(day, []).append(n)
         return Response([
             {
                 "date": d["day"].isoformat(),
@@ -332,7 +368,7 @@ class HistoryView(APIView):
                 "new": d["new"],
                 "comments": d["comments"],
                 "locations": d["locations"],
-                "nps": nps_score(nps_by_day.get(d["day"], [])),
+                "nps": nps_from(d),
             }
             for d in days
         ])

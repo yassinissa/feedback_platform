@@ -1,4 +1,4 @@
-# Architecture — Aftertaste feedback platform
+# Architecture — Green Hills Feedback platform
 
 Single source of truth for arch-guardian reviews.
 
@@ -32,7 +32,7 @@ Single source of truth for arch-guardian reviews.
    `admin/` (and vice versa); shared code lives in `lib/` and `ui/`.
 3. **Highlight/category keys are defined twice on purpose**: validated in
    `models.py`, labelled (EN/AR) in `lib/copy.ts`. Change both together.
-4. **Light "Linen & Evergreen" theme**: colours live only as tokens in `styles/base.css`
+4. **Light Green Hills theme (forest-green accent)**: colours live only as tokens in `styles/base.css`
    (checked for WCAG AA contrast); no gradients/glows, shadows only for depth.
 5. **iOS 15 floor**: no `color-mix()`, `:has()`, container queries, or
    unguarded `dvh`; add translucent colours as `rgba()` tokens in `base.css`.

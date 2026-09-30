@@ -33,16 +33,13 @@ const NAV = [
   { to: '/team', label: 'Team', icon: ICONS.team, end: false, admin: true },
 ]
 
+/** Green Hills lockup (leaf mark + wordmark) with the product name beside it. */
 export function Logo() {
   return (
-    <span className="logo">
-      <svg width="28" height="28" viewBox="0 0 64 64" aria-hidden>
-        <rect width="64" height="64" rx="14" fill="#0f6e66" />
-        <circle cx="23.5" cy="26" r="3.6" fill="#fff" />
-        <circle cx="40.5" cy="26" r="3.6" fill="#fff" />
-        <path d="M20 38.5c3.5 5 8 7.5 12 7.5s8.5-2.5 12-7.5" fill="none" stroke="#fff" strokeWidth="4.5" strokeLinecap="round" />
-      </svg>
-      <span className="logo-word" translate="no">Aftertaste</span>
+    <span className="logo" translate="no">
+      <img className="logo-img" src="/green-hills-logo.png" alt="Green Hills" width={119} height={42} />
+      <span className="logo-divider" aria-hidden />
+      <span className="logo-word">Feedback</span>
     </span>
   )
 }
