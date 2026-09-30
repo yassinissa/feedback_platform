@@ -1,0 +1,23 @@
+# Secrets — never commit (contains Render API key)
+.claude/settings.local.json
+.env
+*.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+backend/db.sqlite3
+backend/staticfiles/
+
+# Node
+node_modules/
+frontend/dist/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/settings.json
+*.tsbuildinfo

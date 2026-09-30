@@ -1,0 +1,8 @@
+{
+  "name": "Guest Feedback",
+  "short_name": "Feedback",
+  "display": "standalone",
+  "background_color": "#07070b",
+  "theme_color": "#07070b",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

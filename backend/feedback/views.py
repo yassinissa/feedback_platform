@@ -1,0 +1,297 @@
+import csv
+from collections import Counter
+from datetime import timedelta
+
+from django.contrib.auth import authenticate, get_user_model
+from django.db.models import Avg, Count, Max, Q
+from django.db.models.functions import TruncDate
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from rest_framework import mixins, status, viewsets
+from rest_framework.authtoken.models import Token
+from rest_framework.exceptions import ValidationError
+from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.views import APIView
+
+from .access import IsAdmin, date_range, day_bounds, scoped_feedback, visible_locations
+from .models import CATEGORY_FIELDS, Feedback, Location
+from .serializers import (
+    FeedbackSerializer,
+    FeedbackSubmitSerializer,
+    LocationSerializer,
+    MeSerializer,
+    PublicLocationSerializer,
+    TeamMemberSerializer,
+)
+
+User = get_user_model()
+
+
+def nps_score(values):
+    values = [v for v in values if v is not None]
+    if not values:
+        return None
+    promoters = sum(1 for v in values if v >= 9)
+    detractors = sum(1 for v in values if v <= 6)
+    return round((promoters - detractors) * 100 / len(values))
+
+
+def rounded(value, places=2):
+    return round(value, places) if value is not None else None
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def health(request):
+    return Response({"ok": True})
+
+
+# ── Auth ────────────────────────────────────────────────────────────────
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+@throttle_classes([ScopedRateThrottle])
+def login(request):
+    user = authenticate(username=request.data.get("username", "").strip(), password=request.data.get("password", ""))
+    if not user:
+        return Response({"detail": "Username or password is incorrect."}, status=status.HTTP_400_BAD_REQUEST)
+    user.last_login = timezone.now()
+    user.save(update_fields=["last_login"])
+    token, _ = Token.objects.get_or_create(user=user)
+    return Response({"token": token.key, "user": MeSerializer(user).data})
+
+
+login.cls.throttle_scope = "login"
+
+
+@api_view(["GET"])
+def me(request):
+    return Response(MeSerializer(request.user).data)
+
+
+@api_view(["POST"])
+def logout(request):
+    Token.objects.filter(user=request.user).delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ── Public (guest iPad / QR) ────────────────────────────────────────────
+
+
+class PublicLocationView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request, slug):
+        location = get_object_or_404(Location, slug=slug, is_active=True)
+        return Response(PublicLocationSerializer(location).data)
+
+
+class PublicSubmitView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "feedback_submit"
+
+    def post(self, request, slug):
+        location = get_object_or_404(Location, slug=slug, is_active=True)
+        serializer = FeedbackSubmitSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        if data.pop("website", ""):
+            return Response({"ok": True}, status=status.HTTP_201_CREATED)  # honeypot hit — drop silently
+        client_id = data.get("client_id")
+        if client_id and Feedback.objects.filter(client_id=client_id).exists():
+            return Response({"ok": True, "duplicate": True})  # retried offline submission
+        Feedback.objects.create(location=location, **data)
+        return Response({"ok": True}, status=status.HTTP_201_CREATED)
+
+
+# ── Admin API ───────────────────────────────────────────────────────────
+
+
+class LocationViewSet(viewsets.ModelViewSet):
+    serializer_class = LocationSerializer
+
+    def get_permissions(self):
+        if self.action in {"list", "retrieve"}:
+            return [IsAuthenticated()]
+        return [IsAdmin()]
+
+    def get_queryset(self):
+        return visible_locations(self.request.user).annotate(
+            feedback_count=Count("feedback"), last_feedback_at=Max("feedback__created_at")
+        )
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
+    def regenerate_link(self, request, pk=None):
+        location = self.get_object()
+        location.slug = ""
+        location.save()
+        return Response(LocationSerializer(location).data)
+
+
+class FeedbackPagination(PageNumberPagination):
+    page_size = 30
+    page_size_query_param = "page_size"
+    max_page_size = 200
+
+
+class FeedbackViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
+    serializer_class = FeedbackSerializer
+    pagination_class = FeedbackPagination
+
+    def get_queryset(self):
+        if self.action == "list" or self.action == "export":
+            return scoped_feedback(self.request)
+        return Feedback.objects.filter(location__in=visible_locations(self.request.user))
+
+    @action(detail=False, methods=["post"])
+    def mark_reviewed(self, request):
+        """End-of-day sweep: every *new* entry matching the filters becomes reviewed."""
+        updated = scoped_feedback(request).filter(status=Feedback.Status.NEW).update(status=Feedback.Status.REVIEWED)
+        return Response({"updated": updated})
+
+    @action(detail=False, methods=["get"])
+    def export(self, request):
+        qs = self.get_queryset()[:20000]
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = 'attachment; filename="feedback.csv"'
+        response.write("﻿")  # BOM so Excel renders Arabic correctly
+        writer = csv.writer(response)
+        cols = ["created_at", "location", "overall", *CATEGORY_FIELDS, "nps", "highlights", "comment",
+                "guest_name", "guest_contact", "contact_consent", "table_number", "server_name", "language",
+                "status", "staff_note"]
+        writer.writerow(cols)
+        tz = timezone.get_current_timezone()
+        for f in qs:
+            writer.writerow([
+                timezone.localtime(f.created_at, tz).strftime("%Y-%m-%d %H:%M"), f.location.name, f.overall,
+                *[getattr(f, c) or "" for c in CATEGORY_FIELDS], "" if f.nps is None else f.nps,
+                ", ".join(f.highlights), f.comment, f.guest_name, f.guest_contact,
+                "yes" if f.contact_consent else "", f.table_number, f.server_name, f.language, f.status, f.staff_note,
+            ])
+        return response
+
+
+class StatsView(APIView):
+    def get(self, request):
+        qs = scoped_feedback(request)
+        start, end = date_range(request.query_params)
+        span = (end - start).days + 1
+
+        agg = qs.aggregate(
+            count=Count("id"), avg=Avg("overall"),
+            **{c: Avg(c) for c in CATEGORY_FIELDS},
+            attention=Count("id", filter=Q(overall__lte=2, status="new")),
+        )
+        rows = list(qs.values("overall", "nps", "highlights", "location_id"))
+
+        # Same-length window immediately before, for trend deltas.
+        prev_lo, prev_hi = day_bounds(start - timedelta(days=span), start - timedelta(days=1))
+        prev_request_qs = scoped_feedback(request, with_dates=False).filter(created_at__gte=prev_lo, created_at__lt=prev_hi)
+        prev = prev_request_qs.aggregate(count=Count("id"), avg=Avg("overall"))
+        prev_nps = nps_score(prev_request_qs.values_list("nps", flat=True))
+
+        tz = timezone.get_current_timezone()
+        daily = {
+            r["day"]: r
+            for r in qs.annotate(day=TruncDate("created_at", tzinfo=tz)).values("day").annotate(
+                count=Count("id"), avg=Avg("overall")
+            )
+        }
+        series = []
+        for i in range(span):
+            d = start + timedelta(days=i)
+            r = daily.get(d)
+            series.append({"date": d.isoformat(), "count": r["count"] if r else 0, "avg": rounded(r["avg"]) if r else None})
+
+        highlights = Counter(h for r in rows for h in (r["highlights"] or []))
+
+        by_location = []
+        locs = {l.id: l for l in visible_locations(request.user)}
+        grouped = {}
+        for r in rows:
+            grouped.setdefault(r["location_id"], []).append(r)
+        for loc_id, items in grouped.items():
+            by_location.append({
+                "id": loc_id,
+                "name": locs[loc_id].name if loc_id in locs else "—",
+                "count": len(items),
+                "avg": rounded(sum(i["overall"] for i in items) / len(items)),
+                "nps": nps_score(i["nps"] for i in items),
+                "low": sum(1 for i in items if i["overall"] <= 2),
+            })
+        by_location.sort(key=lambda x: (-x["count"], x["name"]))
+
+        return Response({
+            "range": {"from": start.isoformat(), "to": end.isoformat()},
+            "count": agg["count"],
+            "avg": rounded(agg["avg"]),
+            "nps": nps_score(r["nps"] for r in rows),
+            "nps_responses": sum(1 for r in rows if r["nps"] is not None),
+            "attention": agg["attention"],
+            "distribution": {str(k): sum(1 for r in rows if r["overall"] == k) for k in range(1, 6)},
+            "categories": {c: rounded(agg[c]) for c in CATEGORY_FIELDS},
+            "series": series,
+            "highlights": [{"key": k, "count": v} for k, v in highlights.most_common(14)],
+            "by_location": by_location,
+            "previous": {"count": prev["count"], "avg": rounded(prev["avg"]), "nps": prev_nps},
+        })
+
+
+class HistoryView(APIView):
+    """One row per local calendar day — the 'end of day' digest list."""
+
+    def get(self, request):
+        qs = scoped_feedback(request, default_days=60)
+        tz = timezone.get_current_timezone()
+        days = (
+            qs.annotate(day=TruncDate("created_at", tzinfo=tz))
+            .values("day")
+            .annotate(
+                count=Count("id"),
+                avg=Avg("overall"),
+                low=Count("id", filter=Q(overall__lte=2)),
+                new=Count("id", filter=Q(status="new")),
+                comments=Count("id", filter=~Q(comment="")),
+                locations=Count("location", distinct=True),
+            )
+            .order_by("-day")
+        )
+        # NPS per day needs the raw values.
+        nps_by_day = {}
+        for day, n in qs.annotate(day=TruncDate("created_at", tzinfo=tz)).exclude(nps=None).values_list("day", "nps"):
+            nps_by_day.setdefault(day, []).append(n)
+        return Response([
+            {
+                "date": d["day"].isoformat(),
+                "count": d["count"],
+                "avg": rounded(d["avg"]),
+                "low": d["low"],
+                "new": d["new"],
+                "comments": d["comments"],
+                "locations": d["locations"],
+                "nps": nps_score(nps_by_day.get(d["day"], [])),
+            }
+            for d in days
+        ])
+
+
+class TeamViewSet(viewsets.ModelViewSet):
+    serializer_class = TeamMemberSerializer
+    permission_classes = [IsAdmin]
+    queryset = User.objects.filter(is_active=True).order_by("-is_staff", "username").prefetch_related("profile__locations")
+
+    def perform_destroy(self, instance):
+        if instance == self.request.user:
+            raise ValidationError({"detail": "You can't remove your own account."})
+        instance.is_active = False
+        instance.save(update_fields=["is_active"])
+        Token.objects.filter(user=instance).delete()
